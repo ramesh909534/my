@@ -3,4 +3,4 @@ tensorflow
 opencv-python
 numpy
 reportlab
-
+gunicorn
