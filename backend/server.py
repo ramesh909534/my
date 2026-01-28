@@ -1,26 +1,16 @@
 from flask import Flask, request, jsonify, send_file
-import cv2, os, sqlite3, random, traceback
+import cv2, os, sqlite3, random, traceback, requests
 from datetime import datetime
-from openai import OpenAI
-import os
-
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
 
 
 # ================= CONFIG =================
 
-# Get API key from Render Environment
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-
-if not OPENAI_KEY:
-    raise Exception("OPENAI_API_KEY not found in Environment Variables")
-
-
-client = OpenAI(api_key=OPENAI_KEY)
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")   # From Render ENV
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 # ================= APP =================
+
 app = Flask(__name__)
 
 DB = "database.db"
@@ -32,6 +22,7 @@ os.makedirs(HEAT, exist_ok=True)
 
 
 # ================= DATABASE =================
+
 def init_db():
 
     con = sqlite3.connect(DB)
@@ -57,6 +48,7 @@ init_db()
 
 
 # ================= SAVE =================
+
 def save(name, res, conf, img, rep):
 
     con = sqlite3.connect(DB)
@@ -67,7 +59,10 @@ def save(name, res, conf, img, rep):
     """, (
         name,
         datetime.now().strftime("%d-%m-%Y %H:%M"),
-        res, conf, img, rep
+        res,
+        conf,
+        img,
+        rep
     ))
 
     con.commit()
@@ -75,6 +70,7 @@ def save(name, res, conf, img, rep):
 
 
 # ================= HEATMAP =================
+
 def make_heatmap(img, fname):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -85,7 +81,6 @@ def make_heatmap(img, fname):
     final = cv2.addWeighted(img, 0.6, heat, 0.4, 0)
 
     out = "heat_" + fname
-
     path = os.path.join(HEAT, out)
 
     cv2.imwrite(path, final)
@@ -93,7 +88,8 @@ def make_heatmap(img, fname):
     return out
 
 
-# ================= SMART AI (DEMO MODEL) =================
+# ================= DEMO AI =================
+
 def predict_ai():
 
     classes = ["Normal", "Benign", "Malignant"]
@@ -104,26 +100,30 @@ def predict_ai():
     )[0]
 
     if result == "Normal":
-        conf = random.uniform(0.75, 0.95)
+        conf = random.uniform(0.7, 0.95)
 
     elif result == "Benign":
         conf = random.uniform(0.6, 0.85)
 
     else:
-        conf = random.uniform(0.8, 0.98)
+        conf = random.uniform(0.75, 0.98)
 
     return result, round(conf, 2)
 
 
-# ================= CHATGPT MEDICAL =================
+# ================= AI DOCTOR (OPENROUTER) =================
+
 def ai_medical_report(name, result, conf, history):
+
+    if not OPENAI_KEY:
+        return "AI API Key not configured."
 
     prompt = f"""
 You are a lung specialist doctor.
 
 Patient Name: {name}
 
-Past Records:
+History:
 {history}
 
 Current Result: {result}
@@ -131,32 +131,54 @@ Confidence: {conf}
 
 Explain clearly:
 
-1. Lung health before COVID
-2. Impact after COVID
-3. Current lung condition
-4. Possible diseases
-5. Treatment plan
-6. Lifestyle suggestions
+1. Before COVID lung condition
+2. After COVID impact
+3. Current lung health
+4. Possible problems
+5. Treatment advice
+6. Lifestyle guidance
 
-Add disclaimer.
-Use simple English.
+Add medical disclaimer.
 """
 
+    headers = {
+        "Authorization": f"Bearer {OPENAI_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://my-r6pu.onrender.com",
+        "X-Title": "AI Lung Health Assistant"
+    }
 
-    res = client.chat.completions.create(
-
-        model="gpt-4o-mini",
-
-        messages=[
-            {"role": "system", "content": "You are a professional lung doctor."},
+    payload = {
+        "model": "openai/gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": "You are a medical doctor."},
             {"role": "user", "content": prompt}
-        ]
-    )
+        ],
+        "temperature": 0.4,
+        "max_tokens": 700
+    }
 
-    return res.choices[0].message.content
+    try:
+
+        r = requests.post(
+            OPENROUTER_URL,
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        if r.status_code != 200:
+            print("OpenRouter Error:", r.text)
+            return "AI Doctor temporarily unavailable."
+
+        return r.json()["choices"][0]["message"]["content"]
+
+    except:
+        return "AI Doctor service error."
 
 
 # ================= PREDICT =================
+
 @app.route("/predict", methods=["POST"])
 def predict():
 
@@ -167,13 +189,11 @@ def predict():
         if "file" not in request.files:
             return jsonify({"error": "No file"}), 400
 
-
         file = request.files["file"]
 
         path = os.path.join(UPLOAD, file.filename)
 
         file.save(path)
-
 
         img = cv2.imread(path)
 
@@ -181,17 +201,20 @@ def predict():
             return jsonify({"error": "Invalid Image"}), 400
 
 
-        # ---------- AI Prediction ----------
+        # ---------- Prediction ----------
+
         result, conf = predict_ai()
 
         report = "Lung Status : " + result
 
 
         # ---------- Heatmap ----------
+
         heat = make_heatmap(img, file.filename)
 
 
-        # ---------- Fetch History ----------
+        # ---------- History ----------
+
         con = sqlite3.connect(DB)
         cur = con.cursor()
 
@@ -204,14 +227,14 @@ def predict():
 
         con.close()
 
-
         history_text = ""
 
         for r in rows:
             history_text += f"{r[0]} : {r[1]}\n"
 
 
-        # ---------- ChatGPT Analysis ----------
+        # ---------- AI Doctor ----------
+
         ai_report = ai_medical_report(
             name,
             result,
@@ -220,7 +243,8 @@ def predict():
         )
 
 
-        # ---------- Save DB ----------
+        # ---------- Save ----------
+
         save(name, result, conf, path, report)
 
 
@@ -234,7 +258,7 @@ def predict():
 
             "treatment": "Consult Pulmonologist",
 
-            "lifestyle": "No smoking, daily walking, breathing exercise",
+            "lifestyle": "No Smoking, Exercise",
 
             "heatmap": heat,
 
@@ -247,15 +271,13 @@ def predict():
         traceback.print_exc()
 
         return jsonify({
-
             "error": "Failed",
-
             "details": str(e)
-
         }), 500
 
 
 # ================= HISTORY =================
+
 @app.route("/history")
 def history():
 
@@ -267,7 +289,6 @@ def history():
     rows = cur.fetchall()
 
     con.close()
-
 
     data = []
 
@@ -290,11 +311,11 @@ def history():
             "report": r[6]
         })
 
-
     return jsonify(data)
 
 
 # ================= HEATMAP =================
+
 @app.route("/heatmap/<name>")
 def heat(name):
 
@@ -302,17 +323,19 @@ def heat(name):
 
 
 # ================= CHAT =================
+
 @app.route("/chat", methods=["POST"])
 def chat():
 
     msg = request.json["msg"]
 
-    reply = "Please consult hospital for: " + msg
+    reply = "Please consult doctor regarding: " + msg
 
     return jsonify({"reply": reply})
 
 
 # ================= PDF =================
+
 @app.route("/generate_pdf/<int:pid>")
 def generate_pdf(pid):
 
@@ -320,6 +343,7 @@ def generate_pdf(pid):
 
 
 # ================= RUN =================
+
 if __name__ == "__main__":
 
     app.run(host="0.0.0.0", port=5000)
