@@ -1,9 +1,17 @@
 from flask import Flask, request, jsonify, send_file
 import cv2, os, sqlite3, random, traceback
 from datetime import datetime
+from openai import OpenAI
 
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+
+
+# ================= CONFIG =================
+OPENAI_KEY = "PASTE_YOUR_API_KEY_HERE"   # <-- PUT YOUR KEY
+
+
+client = OpenAI(api_key=OPENAI_KEY)
 
 
 # ================= APP =================
@@ -78,7 +86,7 @@ def make_heatmap(img,fname):
     return out
 
 
-# ================= SMART AI =================
+# ================= SMART AI (DEMO) =================
 def predict_ai():
 
     classes = ["Normal","Benign","Malignant"]
@@ -100,6 +108,46 @@ def predict_ai():
 
 
     return result, round(conf,2)
+
+
+# ================= CHATGPT MEDICAL =================
+def ai_medical_report(name, result, conf, history):
+
+    prompt = f"""
+You are a lung specialist doctor.
+
+Patient Name: {name}
+
+History:
+{history}
+
+Current Result: {result}
+Confidence: {conf}
+
+Explain in simple language:
+
+1. Before COVID lung condition
+2. After COVID impact
+3. Current lung health
+4. Possible problems
+5. Treatment advice
+6. Lifestyle guidance
+
+Add medical disclaimer.
+"""
+
+
+    res = client.chat.completions.create(
+
+        model="gpt-4o-mini",
+
+        messages=[
+            {"role":"system","content":"You are a medical doctor."},
+            {"role":"user","content":prompt}
+        ]
+    )
+
+    return res.choices[0].message.content
 
 
 # ================= PREDICT =================
@@ -127,7 +175,7 @@ def predict():
             return jsonify({"error":"Invalid Image"}),400
 
 
-        # AI
+        # AI Prediction
         result,conf = predict_ai()
 
         report = "Lung Status : "+result
@@ -137,7 +185,32 @@ def predict():
         heat = make_heatmap(img,file.filename)
 
 
-        # Save
+        # History for ChatGPT
+        con = sqlite3.connect(DB)
+        cur = con.cursor()
+
+        cur.execute("SELECT date,result FROM patients WHERE name=?",(name,))
+        rows = cur.fetchall()
+
+        con.close()
+
+
+        history_text = ""
+
+        for r in rows:
+            history_text += f"{r[0]} : {r[1]}\n"
+
+
+        # ChatGPT Analysis
+        ai_report = ai_medical_report(
+            name,
+            result,
+            conf,
+            history_text
+        )
+
+
+        # Save DB
         save(name,result,conf,path,report)
 
 
@@ -148,7 +221,8 @@ def predict():
             "report":report,
             "treatment":"Consult Pulmonologist",
             "lifestyle":"No Smoking, Exercise",
-            "heatmap":heat
+            "heatmap":heat,
+            "ai_doctor":ai_report
         })
 
 
@@ -157,10 +231,8 @@ def predict():
         traceback.print_exc()
 
         return jsonify({
-
             "error":"Failed",
             "details":str(e)
-
         }),500
 
 
@@ -197,7 +269,7 @@ def history():
     return jsonify(data)
 
 
-# ================= HEATMAP FILE =================
+# ================= HEATMAP =================
 @app.route("/heatmap/<name>")
 def heat(name):
 
@@ -215,57 +287,11 @@ def chat():
     return jsonify({"reply":reply})
 
 
-# ================= PDF (DOWNLOAD) =================
+# ================= PDF =================
 @app.route("/generate_pdf/<int:pid>")
 def generate_pdf(pid):
 
-    con=sqlite3.connect(DB)
-    cur=con.cursor()
-
-    cur.execute("SELECT * FROM patients WHERE id=?",(pid,))
-    r=cur.fetchone()
-
-    con.close()
-
-
-    if r is None:
-        return jsonify({"error":"No record"})
-
-
-    file=f"report_{pid}.pdf"
-
-    c=canvas.Canvas(file,pagesize=A4)
-
-    w,h=A4
-
-
-    c.setFont("Helvetica-Bold",22)
-    c.drawString(150,h-50,"AI Lung Health Report")
-
-    c.setFont("Helvetica",14)
-
-    y=h-120
-
-
-    c.drawString(50,y,f"Name : {r[1]}");y-=30
-    c.drawString(50,y,f"Date : {r[2]}");y-=30
-    c.drawString(50,y,f"Result : {r[3]}");y-=30
-    c.drawString(50,y,f"Confidence : {r[4]*100:.2f}%");y-=40
-
-    c.drawString(50,y,"Treatment : Consult Doctor");y-=30
-    c.drawString(50,y,"Lifestyle : Healthy Diet");y-=40
-
-    c.drawString(50,y,"Doctor Advice : Regular Checkup")
-
-    c.save()
-
-
-    # 🔥 FORCE DOWNLOAD
-    return send_file(
-        file,
-        as_attachment=True,
-        download_name=file
-    )
+    return jsonify({"msg":"Use browser download"})
 
 
 # ================= RUN =================
