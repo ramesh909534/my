@@ -218,7 +218,7 @@ def heat(name):
     return send_file(os.path.join(HEAT, name))
 
 
-# ================= OPENROUTER CHAT =================
+# ================= CHAT (CHATGPT STYLE) =================
 @app.route("/chat", methods=["POST"])
 def chat():
 
@@ -233,19 +233,30 @@ def chat():
         }
 
 
+        # 🔥 STRONG MEDICAL PROMPT
         data = {
             "model": "mistralai/mistral-7b-instruct",
             "messages": [
+
                 {
                     "role": "system",
-                    "content": "You are a medical assistant. Give safe health advice."
+                    "content": (
+                        "You are an experienced lung specialist doctor. "
+                        "Answer like ChatGPT. "
+                        "Give clear, direct, and specific medical answers. "
+                        "Do not give generic advice or long disclaimers. "
+                        "Focus only on the user's question."
+                    )
                 },
+
                 {
                     "role": "user",
                     "content": msg
                 }
+
             ],
-            "max_tokens": 250
+            "max_tokens": 300,
+            "temperature": 0.7
         }
 
 
@@ -276,7 +287,7 @@ def chat():
     except Exception as e:
 
         return jsonify({
-            "reply": "AI unavailable. Consult doctor."
+            "reply": "AI unavailable. Please try again."
         })
 
 
