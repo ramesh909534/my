@@ -1,7 +1,0 @@
-flask
-opencv-python-headless
-numpy
-reportlab
-gunicorn
-openai
-
