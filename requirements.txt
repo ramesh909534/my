@@ -1,8 +1,0 @@
-flask
-opencv-python-headless
-numpy
-reportlab
-gunicorn
-requests
-
-
