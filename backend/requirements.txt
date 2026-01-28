@@ -1,6 +1,5 @@
 flask
-tensorflow
-opencv-python
+opencv-python-headless
 numpy
 reportlab
 gunicorn
