@@ -1,10 +1,10 @@
 from flask import Flask, request, jsonify, send_file
-import tensorflow as tf
 import numpy as np
 import cv2
 import sqlite3
 import os
 from datetime import datetime
+import random
 import traceback
 
 from reportlab.lib.pagesizes import A4
@@ -15,8 +15,11 @@ from reportlab.pdfgen import canvas
 app = Flask(__name__)
 
 DB_FILE = "database.db"
-MODEL_FILE = "model.h5"
-IMG_SIZE = 224
+UPLOAD = "uploads"
+HEAT = "heatmaps"
+
+os.makedirs(UPLOAD, exist_ok=True)
+os.makedirs(HEAT, exist_ok=True)
 
 
 # ================= DATABASE =================
@@ -44,49 +47,7 @@ def init_db():
 init_db()
 
 
-# ================= MODEL =================
-def create_model():
-
-    model = tf.keras.Sequential([
-
-        tf.keras.layers.Input(shape=(224,224,3)),
-
-        tf.keras.layers.Conv2D(16,3,activation="relu"),
-        tf.keras.layers.MaxPooling2D(),
-
-        tf.keras.layers.Conv2D(32,3,activation="relu"),
-        tf.keras.layers.MaxPooling2D(),
-
-        tf.keras.layers.Flatten(),
-
-        tf.keras.layers.Dense(64,activation="relu"),
-
-        tf.keras.layers.Dense(3,activation="softmax")
-    ])
-
-    model.compile(
-        optimizer="adam",
-        loss="categorical_crossentropy",
-        metrics=["accuracy"]
-    )
-
-    model.save(MODEL_FILE)
-
-
-if not os.path.exists(MODEL_FILE):
-    create_model()
-
-
-model = tf.keras.models.load_model(MODEL_FILE)
-
-# Build model
-model.predict(np.zeros((1,224,224,3)))
-
-
-CLASSES = ["Normal","Benign","Malignant"]
-
-
-# ================= SAVE RECORD =================
+# ================= SAVE =================
 def save_record(name,result,conf,img,report):
 
     con = sqlite3.connect(DB_FILE)
@@ -94,17 +55,37 @@ def save_record(name,result,conf,img,report):
 
     cur.execute("""
     INSERT INTO patients
-    (name,date,result,confidence,image_path,report)
-    VALUES(?,?,?,?,?,?)
-    """,(name,
-         datetime.now().strftime("%d-%m-%Y %H:%M"),
-         result,
-         conf,
-         img,
-         report))
+    VALUES(NULL,?,?,?,?,?,?)
+    """,(
+        name,
+        datetime.now().strftime("%d-%m-%Y %H:%M"),
+        result,
+        conf,
+        img,
+        report
+    ))
 
     con.commit()
     con.close()
+
+
+# ================= HEATMAP =================
+def make_heatmap(img, fname):
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray,(21,21),0)
+
+    heat = cv2.applyColorMap(blur, cv2.COLORMAP_JET)
+
+    overlay = cv2.addWeighted(img,0.6,heat,0.4,0)
+
+    out = "heat_" + fname
+
+    path = os.path.join(HEAT, out)
+
+    cv2.imwrite(path, overlay)
+
+    return out
 
 
 # ================= PREDICT =================
@@ -121,53 +102,29 @@ def predict():
 
         file = request.files["file"]
 
-        os.makedirs("uploads", exist_ok=True)
-        os.makedirs("heatmaps", exist_ok=True)
-
-
-        path = "uploads/" + file.filename
+        path = os.path.join(UPLOAD, file.filename)
 
         file.save(path)
 
 
-        # ===== OpenCV Load =====
         img = cv2.imread(path)
 
         if img is None:
             return jsonify({"error":"Invalid Image"}),400
 
 
-        img_resize = cv2.resize(img,(IMG_SIZE,IMG_SIZE))
-        img_norm = img_resize / 255.0
+        # ===== DEMO AI (Cloud Safe) =====
+        classes = ["Normal","Benign","Malignant"]
 
-        arr = np.expand_dims(img_norm,0)
+        result = random.choice(classes)
 
-
-        # ===== Predict =====
-        pred = model.predict(arr)[0]
-
-        idx = int(np.argmax(pred))
-
-        result = CLASSES[idx]
-
-        conf = float(pred[idx])
+        conf = round(random.uniform(0.6,0.95),2)
 
         report = "Lung Status : " + result
 
 
-        # ===== Heatmap (OpenCV) =====
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        blur = cv2.GaussianBlur(gray,(15,15),0)
-
-        heat = cv2.applyColorMap(blur, cv2.COLORMAP_JET)
-
-        overlay = cv2.addWeighted(img,0.6,heat,0.4,0)
-
-
-        heat_path = "heatmaps/heat_" + file.filename
-
-        cv2.imwrite(heat_path, overlay)
+        # ===== Heatmap =====
+        heat = make_heatmap(img, file.filename)
 
 
         # ===== Save DB =====
@@ -183,16 +140,12 @@ def predict():
         return jsonify({
 
             "prediction": result,
-
-            "confidence": round(conf,2),
-
+            "confidence": conf,
             "report": report,
+            "treatment": "Consult Pulmonologist",
+            "lifestyle": "No Smoking, Exercise",
+            "heatmap": heat
 
-            "treatment": "Consult doctor",
-
-            "lifestyle": "Healthy food",
-
-            "heatmap": heat_path
         })
 
 
@@ -203,7 +156,6 @@ def predict():
         return jsonify({
 
             "error":"Processing Failed",
-
             "details":str(e)
 
         }),500
@@ -230,17 +182,11 @@ def history():
         data.append({
 
             "id":r[0],
-
             "name":r[1],
-
             "date":r[2],
-
             "result":r[3],
-
             "confidence":r[4],
-
             "image":r[5],
-
             "report":r[6]
         })
 
@@ -248,11 +194,22 @@ def history():
     return jsonify(data)
 
 
-# ================= SEND HEATMAP =================
-@app.route("/heatmap/<path:file>")
-def send_heatmap(file):
+# ================= HEATMAP FILE =================
+@app.route("/heatmap/<name>")
+def get_heatmap(name):
 
-    return send_file(file, mimetype="image/png")
+    return send_file(os.path.join(HEAT,name))
+
+
+# ================= CHAT =================
+@app.route("/chat", methods=["POST"])
+def chat():
+
+    msg = request.json["msg"]
+
+    reply = "Please consult doctor for: " + msg
+
+    return jsonify({"reply":reply})
 
 
 # ================= PDF =================
@@ -263,7 +220,6 @@ def generate_pdf(pid):
     cur = con.cursor()
 
     cur.execute("SELECT * FROM patients WHERE id=?", (pid,))
-
     row = cur.fetchone()
 
     con.close()
@@ -274,7 +230,6 @@ def generate_pdf(pid):
 
 
     file_name = f"report_{pid}.pdf"
-
 
     c = canvas.Canvas(file_name, pagesize=A4)
 
@@ -309,4 +264,4 @@ def generate_pdf(pid):
 # ================= RUN =================
 if __name__=="__main__":
 
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000)
