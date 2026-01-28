@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, send_file
 import cv2, os, sqlite3, random, traceback
-import numpy as np
 from datetime import datetime
 
 from reportlab.lib.pagesizes import A4
@@ -85,11 +84,8 @@ def predict_ai():
     classes = ["Normal","Benign","Malignant"]
 
     result = random.choices(
-
         classes,
-
         weights=[0.5,0.3,0.2]
-
     )[0]
 
 
@@ -219,15 +215,14 @@ def chat():
     return jsonify({"reply":reply})
 
 
-# ================= PDF =================
+# ================= PDF (DOWNLOAD) =================
 @app.route("/generate_pdf/<int:pid>")
-def pdf(pid):
+def generate_pdf(pid):
 
     con=sqlite3.connect(DB)
     cur=con.cursor()
 
     cur.execute("SELECT * FROM patients WHERE id=?",(pid,))
-
     r=cur.fetchone()
 
     con.close()
@@ -265,7 +260,12 @@ def pdf(pid):
     c.save()
 
 
-    return jsonify({"file":file})
+    # 🔥 FORCE DOWNLOAD
+    return send_file(
+        file,
+        as_attachment=True,
+        download_name=file
+    )
 
 
 # ================= RUN =================
