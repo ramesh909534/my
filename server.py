@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, send_file
-import cv2, os, sqlite3, random, traceback
+import cv2, os, sqlite3, random, traceback, requests
 from datetime import datetime
 
 from reportlab.lib.pagesizes import A4
@@ -15,6 +15,10 @@ HEAT = "heatmaps"
 
 os.makedirs(UPLOAD, exist_ok=True)
 os.makedirs(HEAT, exist_ok=True)
+
+
+# ================= OPENROUTER =================
+OPENROUTER_KEY = os.getenv("OPENROUTER_KEY")
 
 
 # ================= DATABASE =================
@@ -204,18 +208,62 @@ def heat(name):
     return send_file(os.path.join(HEAT,name))
 
 
-# ================= CHAT =================
+# ================= CHAT (REAL AI) =================
 @app.route("/chat",methods=["POST"])
 def chat():
 
-    msg=request.json["msg"]
+    try:
 
-    reply="Please consult doctor regarding: "+msg
-
-    return jsonify({"reply":reply})
+        msg = request.json["msg"]
 
 
-# ================= PDF (DOWNLOAD) =================
+        if not OPENROUTER_KEY:
+            return jsonify({"reply":"OpenRouter API Key Missing"})
+
+
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json"
+        }
+
+
+        data = {
+            "model": "openai/gpt-3.5-turbo",
+            "messages": [
+                {
+                    "role":"system",
+                    "content":"You are a medical AI assistant for lung health."
+                },
+                {
+                    "role":"user",
+                    "content":msg
+                }
+            ]
+        }
+
+
+        r = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+
+
+        res = r.json()
+
+        reply = res["choices"][0]["message"]["content"]
+
+
+        return jsonify({"reply":reply})
+
+
+    except Exception:
+
+        return jsonify({"reply":"AI Server Error"})
+
+
+# ================= PDF =================
 @app.route("/generate_pdf/<int:pid>")
 def generate_pdf(pid):
 
@@ -260,7 +308,6 @@ def generate_pdf(pid):
     c.save()
 
 
-    # 🔥 FORCE DOWNLOAD
     return send_file(
         file,
         as_attachment=True,
