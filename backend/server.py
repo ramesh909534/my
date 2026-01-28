@@ -2,13 +2,19 @@ from flask import Flask, request, jsonify, send_file
 import cv2, os, sqlite3, random, traceback
 from datetime import datetime
 from openai import OpenAI
+import os
 
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 
 # ================= CONFIG =================
-OPENAI_KEY = "PASTE_YOUR_API_KEY_HERE"   # <-- PUT YOUR KEY
+
+# Get API key from Render Environment
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+
+if not OPENAI_KEY:
+    raise Exception("OPENAI_API_KEY not found in Environment Variables")
 
 
 client = OpenAI(api_key=OPENAI_KEY)
@@ -46,21 +52,22 @@ def init_db():
     con.commit()
     con.close()
 
+
 init_db()
 
 
 # ================= SAVE =================
-def save(name,res,conf,img,rep):
+def save(name, res, conf, img, rep):
 
     con = sqlite3.connect(DB)
     cur = con.cursor()
 
     cur.execute("""
     INSERT INTO patients VALUES(NULL,?,?,?,?,?,?)
-    """,(
+    """, (
         name,
         datetime.now().strftime("%d-%m-%Y %H:%M"),
-        res,conf,img,rep
+        res, conf, img, rep
     ))
 
     con.commit()
@@ -68,46 +75,44 @@ def save(name,res,conf,img,rep):
 
 
 # ================= HEATMAP =================
-def make_heatmap(img,fname):
+def make_heatmap(img, fname):
 
-    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray,(21,21),0)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (21, 21), 0)
 
-    heat = cv2.applyColorMap(blur,cv2.COLORMAP_JET)
+    heat = cv2.applyColorMap(blur, cv2.COLORMAP_JET)
 
-    final = cv2.addWeighted(img,0.6,heat,0.4,0)
+    final = cv2.addWeighted(img, 0.6, heat, 0.4, 0)
 
-    out = "heat_"+fname
+    out = "heat_" + fname
 
-    path = os.path.join(HEAT,out)
+    path = os.path.join(HEAT, out)
 
-    cv2.imwrite(path,final)
+    cv2.imwrite(path, final)
 
     return out
 
 
-# ================= SMART AI (DEMO) =================
+# ================= SMART AI (DEMO MODEL) =================
 def predict_ai():
 
-    classes = ["Normal","Benign","Malignant"]
+    classes = ["Normal", "Benign", "Malignant"]
 
     result = random.choices(
         classes,
-        weights=[0.5,0.3,0.2]
+        weights=[0.5, 0.3, 0.2]
     )[0]
 
+    if result == "Normal":
+        conf = random.uniform(0.75, 0.95)
 
-    if result=="Normal":
-        conf = random.uniform(0.7,0.95)
-
-    elif result=="Benign":
-        conf = random.uniform(0.6,0.85)
+    elif result == "Benign":
+        conf = random.uniform(0.6, 0.85)
 
     else:
-        conf = random.uniform(0.75,0.98)
+        conf = random.uniform(0.8, 0.98)
 
-
-    return result, round(conf,2)
+    return result, round(conf, 2)
 
 
 # ================= CHATGPT MEDICAL =================
@@ -118,22 +123,23 @@ You are a lung specialist doctor.
 
 Patient Name: {name}
 
-History:
+Past Records:
 {history}
 
 Current Result: {result}
 Confidence: {conf}
 
-Explain in simple language:
+Explain clearly:
 
-1. Before COVID lung condition
-2. After COVID impact
-3. Current lung health
-4. Possible problems
-5. Treatment advice
-6. Lifestyle guidance
+1. Lung health before COVID
+2. Impact after COVID
+3. Current lung condition
+4. Possible diseases
+5. Treatment plan
+6. Lifestyle suggestions
 
-Add medical disclaimer.
+Add disclaimer.
+Use simple English.
 """
 
 
@@ -142,8 +148,8 @@ Add medical disclaimer.
         model="gpt-4o-mini",
 
         messages=[
-            {"role":"system","content":"You are a medical doctor."},
-            {"role":"user","content":prompt}
+            {"role": "system", "content": "You are a professional lung doctor."},
+            {"role": "user", "content": prompt}
         ]
     )
 
@@ -151,20 +157,20 @@ Add medical disclaimer.
 
 
 # ================= PREDICT =================
-@app.route("/predict",methods=["POST"])
+@app.route("/predict", methods=["POST"])
 def predict():
 
     try:
 
-        name = request.form.get("name","Unknown")
+        name = request.form.get("name", "Unknown")
 
         if "file" not in request.files:
-            return jsonify({"error":"No file"}),400
+            return jsonify({"error": "No file"}), 400
 
 
         file = request.files["file"]
 
-        path = os.path.join(UPLOAD,file.filename)
+        path = os.path.join(UPLOAD, file.filename)
 
         file.save(path)
 
@@ -172,24 +178,28 @@ def predict():
         img = cv2.imread(path)
 
         if img is None:
-            return jsonify({"error":"Invalid Image"}),400
+            return jsonify({"error": "Invalid Image"}), 400
 
 
-        # AI Prediction
-        result,conf = predict_ai()
+        # ---------- AI Prediction ----------
+        result, conf = predict_ai()
 
-        report = "Lung Status : "+result
-
-
-        # Heatmap
-        heat = make_heatmap(img,file.filename)
+        report = "Lung Status : " + result
 
 
-        # History for ChatGPT
+        # ---------- Heatmap ----------
+        heat = make_heatmap(img, file.filename)
+
+
+        # ---------- Fetch History ----------
         con = sqlite3.connect(DB)
         cur = con.cursor()
 
-        cur.execute("SELECT date,result FROM patients WHERE name=?",(name,))
+        cur.execute(
+            "SELECT date,result FROM patients WHERE name=?",
+            (name,)
+        )
+
         rows = cur.fetchall()
 
         con.close()
@@ -201,7 +211,7 @@ def predict():
             history_text += f"{r[0]} : {r[1]}\n"
 
 
-        # ChatGPT Analysis
+        # ---------- ChatGPT Analysis ----------
         ai_report = ai_medical_report(
             name,
             result,
@@ -210,19 +220,25 @@ def predict():
         )
 
 
-        # Save DB
-        save(name,result,conf,path,report)
+        # ---------- Save DB ----------
+        save(name, result, conf, path, report)
 
 
         return jsonify({
 
-            "prediction":result,
-            "confidence":conf,
-            "report":report,
-            "treatment":"Consult Pulmonologist",
-            "lifestyle":"No Smoking, Exercise",
-            "heatmap":heat,
-            "ai_doctor":ai_report
+            "prediction": result,
+
+            "confidence": conf,
+
+            "report": report,
+
+            "treatment": "Consult Pulmonologist",
+
+            "lifestyle": "No smoking, daily walking, breathing exercise",
+
+            "heatmap": heat,
+
+            "ai_doctor": ai_report
         })
 
 
@@ -231,9 +247,12 @@ def predict():
         traceback.print_exc()
 
         return jsonify({
-            "error":"Failed",
-            "details":str(e)
-        }),500
+
+            "error": "Failed",
+
+            "details": str(e)
+
+        }), 500
 
 
 # ================= HISTORY =================
@@ -250,19 +269,25 @@ def history():
     con.close()
 
 
-    data=[]
+    data = []
 
     for r in rows:
 
         data.append({
 
-            "id":r[0],
-            "name":r[1],
-            "date":r[2],
-            "result":r[3],
-            "confidence":r[4],
-            "image":r[5],
-            "report":r[6]
+            "id": r[0],
+
+            "name": r[1],
+
+            "date": r[2],
+
+            "result": r[3],
+
+            "confidence": r[4],
+
+            "image": r[5],
+
+            "report": r[6]
         })
 
 
@@ -273,28 +298,28 @@ def history():
 @app.route("/heatmap/<name>")
 def heat(name):
 
-    return send_file(os.path.join(HEAT,name))
+    return send_file(os.path.join(HEAT, name))
 
 
 # ================= CHAT =================
-@app.route("/chat",methods=["POST"])
+@app.route("/chat", methods=["POST"])
 def chat():
 
-    msg=request.json["msg"]
+    msg = request.json["msg"]
 
-    reply="Please consult doctor regarding: "+msg
+    reply = "Please consult hospital for: " + msg
 
-    return jsonify({"reply":reply})
+    return jsonify({"reply": reply})
 
 
 # ================= PDF =================
 @app.route("/generate_pdf/<int:pid>")
 def generate_pdf(pid):
 
-    return jsonify({"msg":"Use browser download"})
+    return jsonify({"msg": "Use browser download"})
 
 
 # ================= RUN =================
-if __name__=="__main__":
+if __name__ == "__main__":
 
-    app.run(host="0.0.0.0",port=5000)
+    app.run(host="0.0.0.0", port=5000)
