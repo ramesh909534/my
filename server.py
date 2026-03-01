@@ -23,6 +23,8 @@ HEAT = "heatmaps"
 
 OPENROUTER_KEY = os.getenv("OPENROUTER_KEY")
 
+if not OPENROUTER_KEY:
+    OPENROUTER_KEY = ""
 
 os.makedirs(UPLOAD, exist_ok=True)
 os.makedirs(HEAT, exist_ok=True)
@@ -31,7 +33,7 @@ os.makedirs(HEAT, exist_ok=True)
 # ================= DATABASE =================
 def init_db():
 
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(DB, check_same_thread=False)
     cur = con.cursor()
 
     cur.execute("""
@@ -56,7 +58,7 @@ init_db()
 # ================= SAVE =================
 def save(name, res, conf, img, rep):
 
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(DB, check_same_thread=False)
     cur = con.cursor()
 
     cur.execute("""
@@ -127,8 +129,10 @@ def predict():
         if "file" not in request.files:
             return jsonify({"error": "No file"}), 400
 
-
         file = request.files["file"]
+
+        if file.filename == "":
+            return jsonify({"error": "Empty filename"}), 400
 
         fname = datetime.now().strftime("%Y%m%d%H%M%S_") + file.filename
 
@@ -136,29 +140,23 @@ def predict():
 
         file.save(path)
 
-
         img = cv2.imread(path)
 
         if img is None:
             return jsonify({"error": "Invalid Image"}), 400
-
 
         # AI
         result, conf = predict_ai()
 
         report = "Lung Status : " + result
 
-
         # Heatmap
         heat = make_heatmap(img, fname)
-
 
         # Save DB
         save(name, result, conf, path, report)
 
-
         return jsonify({
-
             "prediction": result,
             "confidence": conf,
             "report": report,
@@ -166,7 +164,6 @@ def predict():
             "lifestyle": "No Smoking, Exercise",
             "heatmap": heat
         })
-
 
     except Exception as e:
 
@@ -182,7 +179,7 @@ def predict():
 @app.route("/history")
 def history():
 
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(DB, check_same_thread=False)
     cur = con.cursor()
 
     cur.execute("SELECT * FROM patients")
@@ -191,13 +188,11 @@ def history():
 
     con.close()
 
-
     data = []
 
     for r in rows:
 
         data.append({
-
             "id": r[0],
             "name": r[1],
             "date": r[2],
@@ -207,7 +202,6 @@ def history():
             "report": r[6]
         })
 
-
     return jsonify(data)
 
 
@@ -215,7 +209,12 @@ def history():
 @app.route("/heatmap/<name>")
 def heat(name):
 
-    return send_file(os.path.join(HEAT, name))
+    path = os.path.join(HEAT, name)
+
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 404
+
+    return send_file(path)
 
 
 # ================= CHAT (CHATGPT STYLE) =================
@@ -224,20 +223,19 @@ def chat():
 
     try:
 
-        msg = request.json["msg"]
+        if not OPENROUTER_KEY:
+            return jsonify({"reply": "API key not configured"})
 
+        msg = request.json.get("msg", "")
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json"
         }
 
-
-        # 🔥 STRONG MEDICAL PROMPT
         data = {
             "model": "mistralai/mistral-7b-instruct",
             "messages": [
-
                 {
                     "role": "system",
                     "content": (
@@ -248,17 +246,14 @@ def chat():
                         "Focus only on the user's question."
                     )
                 },
-
                 {
                     "role": "user",
                     "content": msg
                 }
-
             ],
             "max_tokens": 300,
             "temperature": 0.7
         }
-
 
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -267,25 +262,22 @@ def chat():
             timeout=30
         )
 
+        if r.status_code != 200:
+            return jsonify({"reply": "AI service error"})
 
-        res = r.json()
-
+        try:
+            res = r.json()
+        except:
+            return jsonify({"reply": "Invalid AI response"})
 
         if "choices" not in res:
-
-            return jsonify({
-                "reply": "AI service error"
-            })
-
+            return jsonify({"reply": "AI service error"})
 
         reply = res["choices"][0]["message"]["content"]
 
-
         return jsonify({"reply": reply})
 
-
-    except Exception as e:
-
+    except Exception:
         return jsonify({
             "reply": "AI unavailable. Please try again."
         })
@@ -295,7 +287,7 @@ def chat():
 @app.route("/generate_pdf/<int:pid>")
 def generate_pdf(pid):
 
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(DB, check_same_thread=False)
     cur = con.cursor()
 
     cur.execute("SELECT * FROM patients WHERE id=?", (pid,))
@@ -303,17 +295,14 @@ def generate_pdf(pid):
 
     con.close()
 
-
     if r is None:
         return jsonify({"error": "No record"})
 
-
-    file = f"report_{pid}.pdf"
+    file = f"report_{pid}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
 
     c = canvas.Canvas(file, pagesize=A4)
 
     w, h = A4
-
 
     c.setFont("Helvetica-Bold", 22)
     c.drawString(150, h-50, "AI Lung Health Report")
@@ -321,7 +310,6 @@ def generate_pdf(pid):
     c.setFont("Helvetica", 14)
 
     y = h-120
-
 
     c.drawString(50, y, f"Name : {r[1]}"); y -= 30
     c.drawString(50, y, f"Date : {r[2]}"); y -= 30
@@ -334,7 +322,6 @@ def generate_pdf(pid):
     c.drawString(50, y, "Doctor Advice : Regular Checkup")
 
     c.save()
-
 
     return send_file(
         file,
