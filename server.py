@@ -5,12 +5,16 @@ import sqlite3
 import random
 import traceback
 import requests
+
 from datetime import datetime
+
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
+
 # ================= APP =================
 app = Flask(__name__)
+
 
 # ================= CONFIG =================
 DB = "database.db"
@@ -22,10 +26,13 @@ OPENROUTER_KEY = os.getenv("OPENROUTER_KEY")
 os.makedirs(UPLOAD, exist_ok=True)
 os.makedirs(HEAT, exist_ok=True)
 
+
 # ================= DATABASE =================
 def init_db():
+
     con = sqlite3.connect(DB)
     cur = con.cursor()
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS patients(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,15 +44,20 @@ def init_db():
         report TEXT
     )
     """)
+
     con.commit()
     con.close()
 
+
 init_db()
+
 
 # ================= SAVE =================
 def save(name, res, conf, img, rep):
+
     con = sqlite3.connect(DB)
     cur = con.cursor()
+
     cur.execute("""
     INSERT INTO patients VALUES(NULL,?,?,?,?,?,?)
     """, (
@@ -56,49 +68,68 @@ def save(name, res, conf, img, rep):
         img,
         rep
     ))
+
     con.commit()
     con.close()
 
+
 # ================= HEATMAP =================
 def make_heatmap(img, fname):
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (21, 21), 0)
     heat = cv2.applyColorMap(blur, cv2.COLORMAP_JET)
     final = cv2.addWeighted(img, 0.6, heat, 0.4, 0)
+
     out = "heat_" + fname
     path = os.path.join(HEAT, out)
+
     cv2.imwrite(path, final)
+
     return out
+
 
 # ================= DEMO AI =================
 def predict_ai():
+
     classes = ["Normal", "Benign", "Malignant"]
-    result = random.choices(classes, weights=[0.5, 0.3, 0.2])[0]
+
+    result = random.choices(
+        classes,
+        weights=[0.5, 0.3, 0.2]
+    )[0]
 
     if result == "Normal":
         conf = random.uniform(0.7, 0.95)
+
     elif result == "Benign":
         conf = random.uniform(0.6, 0.85)
+
     else:
         conf = random.uniform(0.75, 0.98)
 
     return result, round(conf, 2)
 
+
 # ================= PREDICT =================
 @app.route("/predict", methods=["POST"])
 def predict():
+
     try:
+
         name = request.form.get("name", "Unknown")
 
         if "file" not in request.files:
             return jsonify({"error": "No file"}), 400
 
         file = request.files["file"]
+
         fname = datetime.now().strftime("%Y%m%d%H%M%S_") + file.filename
         path = os.path.join(UPLOAD, fname)
         file.save(path)
 
         img = cv2.imread(path)
+
         if img is None:
             return jsonify({"error": "Invalid Image"}), 400
 
@@ -117,12 +148,19 @@ def predict():
         })
 
     except Exception as e:
+
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+
+        return jsonify({
+            "error": "Failed",
+            "details": str(e)
+        }), 500
+
 
 # ================= HISTORY =================
 @app.route("/history")
 def history():
+
     con = sqlite3.connect(DB)
     cur = con.cursor()
     cur.execute("SELECT * FROM patients")
@@ -130,7 +168,9 @@ def history():
     con.close()
 
     data = []
+
     for r in rows:
+
         data.append({
             "id": r[0],
             "name": r[1],
@@ -143,70 +183,88 @@ def history():
 
     return jsonify(data)
 
+
 # ================= HEATMAP FILE =================
 @app.route("/heatmap/<name>")
 def heat(name):
+
     return send_file(os.path.join(HEAT, name))
 
-# ================= CHAT =================
+
+# ================= CHAT (SAFE FIX ONLY) =================
 @app.route("/chat", methods=["POST"])
 def chat():
+
     try:
-        data_in = request.get_json()
 
-        if not data_in or "msg" not in data_in:
-            return jsonify({"reply": "Invalid request"})
-
-        if not OPENROUTER_KEY:
-            return jsonify({"reply": "API key missing in server"})
-
-        msg = data_in["msg"]
+        msg = request.json.get("msg")
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://my-r6pu.onrender.com",
-            "X-Title": "AI Lung Health Assistant"
+            "Content-Type": "application/json"
         }
 
-        payload = {
-            "model": "openai/gpt-3.5-turbo",
+        data = {
+            "model": "mistralai/mistral-7b-instruct",
             "messages": [
-                {"role": "system", "content": "You are a lung specialist. Give short and clear medical advice."},
-                {"role": "user", "content": msg}
+
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an experienced lung specialist doctor. "
+                        "Answer like ChatGPT. "
+                        "Give clear, direct, and specific medical answers. "
+                        "Do not give generic advice or long disclaimers. "
+                        "Focus only on the user's question."
+                    )
+                },
+
+                {
+                    "role": "user",
+                    "content": msg
+                }
+
             ],
             "max_tokens": 300,
             "temperature": 0.7
         }
 
-        response = requests.post(
+        r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
-            json=payload,
-            timeout=40
+            json=data,
+            timeout=30
         )
 
-        print("STATUS:", response.status_code)
-        print("RESPONSE:", response.text)
-
-        if response.status_code != 200:
-            return jsonify({"reply": "AI service temporarily unavailable"})
-
-        result = response.json()
-
-        if "choices" not in result:
+        # 🔥 SAFE ADDITION (status check)
+        if r.status_code != 200:
+            print("STATUS:", r.status_code)
+            print("RESPONSE:", r.text)
             return jsonify({"reply": "AI service error"})
 
-        reply = result["choices"][0]["message"]["content"]
+        res = r.json()
+
+        if "choices" not in res:
+            print("INVALID RESPONSE:", res)
+            return jsonify({"reply": "AI service error"})
+
+        reply = res["choices"][0]["message"]["content"]
+
         return jsonify({"reply": reply})
 
     except Exception as e:
+
         print("CHAT ERROR:", str(e))
-        return jsonify({"reply": "Server error"})
+
+        return jsonify({
+            "reply": "AI unavailable. Please try again."
+        })
+
 
 # ================= PDF =================
 @app.route("/generate_pdf/<int:pid>")
 def generate_pdf(pid):
+
     con = sqlite3.connect(DB)
     cur = con.cursor()
     cur.execute("SELECT * FROM patients WHERE id=?", (pid,))
@@ -217,6 +275,7 @@ def generate_pdf(pid):
         return jsonify({"error": "No record"})
 
     file = f"report_{pid}.pdf"
+
     c = canvas.Canvas(file, pagesize=A4)
     w, h = A4
 
@@ -237,9 +296,15 @@ def generate_pdf(pid):
 
     c.save()
 
-    return send_file(file, as_attachment=True, download_name=file)
+    return send_file(
+        file,
+        as_attachment=True,
+        download_name=file
+    )
+
 
 # ================= RUN =================
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
