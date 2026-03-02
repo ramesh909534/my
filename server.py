@@ -65,7 +65,6 @@ def make_heatmap(img, fname):
     blur = cv2.GaussianBlur(gray, (21, 21), 0)
     heat = cv2.applyColorMap(blur, cv2.COLORMAP_JET)
     final = cv2.addWeighted(img, 0.6, heat, 0.4, 0)
-
     out = "heat_" + fname
     path = os.path.join(HEAT, out)
     cv2.imwrite(path, final)
@@ -144,7 +143,7 @@ def history():
 
     return jsonify(data)
 
-# ================= HEATMAP =================
+# ================= HEATMAP FILE =================
 @app.route("/heatmap/<name>")
 def heat(name):
     return send_file(os.path.join(HEAT, name))
@@ -153,12 +152,13 @@ def heat(name):
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
-        if not OPENROUTER_KEY:
-            return jsonify({"reply": "API key not configured in server"})
-
         data_in = request.get_json()
+
         if not data_in or "msg" not in data_in:
             return jsonify({"reply": "Invalid request"})
+
+        if not OPENROUTER_KEY:
+            return jsonify({"reply": "API key missing in server"})
 
         msg = data_in["msg"]
 
@@ -170,16 +170,10 @@ def chat():
         }
 
         payload = {
-            "model": "openai/gpt-3.5-turbo",  # stable model
+            "model": "openai/gpt-3.5-turbo",
             "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an experienced lung specialist doctor. Give short, clear answers."
-                },
-                {
-                    "role": "user",
-                    "content": msg
-                }
+                {"role": "system", "content": "You are a lung specialist. Give short and clear medical advice."},
+                {"role": "user", "content": msg}
             ],
             "max_tokens": 300,
             "temperature": 0.7
@@ -193,7 +187,7 @@ def chat():
         )
 
         print("STATUS:", response.status_code)
-        print("RAW RESPONSE:", response.text)
+        print("RESPONSE:", response.text)
 
         if response.status_code != 200:
             return jsonify({"reply": "AI service temporarily unavailable"})
