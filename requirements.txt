@@ -1,7 +1,9 @@
 flask
+gunicorn
+requests
 opencv-python-headless
 numpy
 reportlab
-gunicorn
-requests
-
+pillow
+torch
+torchvision
