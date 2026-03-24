@@ -143,7 +143,6 @@ def predict():
         if img is None:
             return jsonify({"error": "Invalid Image"}), 400
 
-        # ✅ REAL AI OUTPUT
         after = analyze_lung_health_real(path)
 
         before = int(min(100, after + 10 + (after * 0.1)))
@@ -152,7 +151,6 @@ def predict():
         result = "Lung Analysis"
         conf = after / 100
 
-        # 🔥 EXTRA MEDICAL INSIGHTS
         if after > 75:
             severity = "Mild"
             explanation = "Lungs appear mostly healthy with minor or no visible damage."
@@ -166,7 +164,6 @@ def predict():
             explanation = "Significant lung damage detected. Immediate medical attention required."
             recovery_time = "4+ weeks"
 
-        # 🔥 DYNAMIC ADVICE
         if after > 75:
             treatment = "Maintain healthy lifestyle"
             lifestyle = "Exercise regularly, balanced diet"
@@ -177,7 +174,6 @@ def predict():
             treatment = "Consult Pulmonologist immediately"
             lifestyle = "No smoking, strict medical care, rest"
 
-        # 🔥 FINAL REPORT
         final_report = f"""
 Lung health is {after}%
 Estimated reduction: {damage}%
@@ -193,7 +189,6 @@ Lifestyle: {lifestyle}
 
         heat = make_heatmap(img, fname)
 
-        # Save DB
         save(name, result, conf, path, final_report)
 
         return jsonify({
@@ -257,7 +252,9 @@ def chat():
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost",   # ✅ FIX
+            "X-Title": "Lung AI App"              # ✅ FIX
         }
 
         data = {
