@@ -146,15 +146,11 @@ def predict():
         # ✅ REAL AI OUTPUT
         after = analyze_lung_health_real(path)
 
-        # 🔥 REALISTIC PRE-COVID ESTIMATION
         before = int(min(100, after + 10 + (after * 0.1)))
-
         damage = before - after
 
         result = "Lung Analysis"
         conf = after / 100
-
-        report = f"Lung health is {after}%. Reduced by {damage}% from estimated healthy state."
 
         # 🔥 EXTRA MEDICAL INSIGHTS
         if after > 75:
@@ -170,10 +166,7 @@ def predict():
             explanation = "Significant lung damage detected. Immediate medical attention required."
             recovery_time = "4+ weeks"
 
-        # Heatmap
-        heat = make_heatmap(img, fname)
-
-        # 🔥 DYNAMIC ADVICE BASED ON CONDITION
+        # 🔥 DYNAMIC ADVICE
         if after > 75:
             treatment = "Maintain healthy lifestyle"
             lifestyle = "Exercise regularly, balanced diet"
@@ -184,7 +177,7 @@ def predict():
             treatment = "Consult Pulmonologist immediately"
             lifestyle = "No smoking, strict medical care, rest"
 
-        # 🔥 FINAL ADVANCED REPORT
+        # 🔥 FINAL REPORT
         final_report = f"""
 Lung health is {after}%
 Estimated reduction: {damage}%
@@ -198,20 +191,10 @@ Advice: {treatment}
 Lifestyle: {lifestyle}
 """
 
-        # Save DB (UPDATED ✅)
+        heat = make_heatmap(img, fname)
+
+        # Save DB
         save(name, result, conf, path, final_report)
-        final_report = f"""
-Lung health is {after}%
-Estimated reduction: {damage}%
-
-Severity: {severity}
-Explanation: {explanation}
-
-Recovery Time: {recovery_time}
-Advice: {treatment}
-
-Lifestyle: {lifestyle}
-"""
 
         return jsonify({
             "prediction": result,
@@ -223,13 +206,8 @@ Lifestyle: {lifestyle}
         })
 
     except Exception as e:
-
         traceback.print_exc()
-
-        return jsonify({
-            "error": "Failed",
-            "details": str(e)
-        }), 500
+        return jsonify({"error": "Failed", "details": str(e)}), 500
 
 
 # ================= HISTORY =================
@@ -272,8 +250,10 @@ def heat(name):
 def chat():
 
     try:
+        msg = request.json.get("msg", "")
 
-        msg = request.json["msg"]
+        if not OPENROUTER_KEY:
+            return jsonify({"reply": "API key missing"})
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -283,37 +263,34 @@ def chat():
         data = {
             "model": "mistralai/mistral-7b-instruct",
             "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an experienced lung specialist doctor."
-                },
-                {
-                    "role": "user",
-                    "content": msg
-                }
+                {"role": "system", "content": "You are a helpful lung specialist doctor."},
+                {"role": "user", "content": msg}
             ],
-            "max_tokens": 300,
-            "temperature": 0.7
+            "max_tokens": 200
         }
 
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=data,
-            timeout=30
+            timeout=20
         )
+
+        if r.status_code != 200:
+            return jsonify({"reply": f"API error {r.status_code}"})
 
         res = r.json()
 
         if "choices" not in res:
-            return jsonify({"reply": "AI service error"})
+            return jsonify({"reply": "Invalid AI response"})
 
         reply = res["choices"][0]["message"]["content"]
 
         return jsonify({"reply": reply})
 
-    except Exception:
-        return jsonify({"reply": "AI unavailable. Please try again."})
+    except Exception as e:
+        print("CHAT ERROR:", e)
+        return jsonify({"reply": "Chat failed"})
 
 
 # ================= PDF =================
@@ -325,14 +302,12 @@ def generate_pdf(pid):
 
     cur.execute("SELECT * FROM patients WHERE id=?", (pid,))
     r = cur.fetchone()
-
     con.close()
 
     if r is None:
         return jsonify({"error": "No record"})
 
     file = f"report_{pid}.pdf"
-
     c = canvas.Canvas(file, pagesize=A4)
 
     w, h = A4
@@ -341,35 +316,26 @@ def generate_pdf(pid):
     c.drawString(150, h-50, "AI Lung Health Report")
 
     c.setFont("Helvetica", 14)
-
     y = h-120
 
-    # Basic Info
     c.drawString(50, y, f"Name : {r[1]}"); y -= 30
     c.drawString(50, y, f"Date : {r[2]}"); y -= 30
     c.drawString(50, y, f"Result : {r[3]}"); y -= 30
     c.drawString(50, y, f"Confidence : {r[4]*100:.2f}%"); y -= 40
 
-    # 🔥 FULL AI REPORT FROM DATABASE
     report_lines = r[6].split("\n")
 
     for line in report_lines:
-        if line.strip() != "":
+        if line.strip():
             c.drawString(50, y, line.strip())
             y -= 25
 
     c.save()
 
-    return send_file(
-        file,
-        as_attachment=True,
-        download_name=file
-    )
+    return send_file(file, as_attachment=True, download_name=file)
 
 
 # ================= RUN =================
 if __name__ == "__main__":
-
     port = int(os.environ.get("PORT", 5000))
-
     app.run(host="0.0.0.0", port=port)
