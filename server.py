@@ -156,6 +156,20 @@ def predict():
 
         report = f"Lung health is {after}%. Reduced by {damage}% from estimated healthy state."
 
+        # 🔥 EXTRA MEDICAL INSIGHTS
+        if after > 75:
+            severity = "Mild"
+            explanation = "Lungs appear mostly healthy with minor or no visible damage."
+            recovery_time = "1-2 weeks"
+        elif after > 50:
+            severity = "Moderate"
+            explanation = "Moderate lung changes detected. Monitoring is recommended."
+            recovery_time = "2-4 weeks"
+        else:
+            severity = "Severe"
+            explanation = "Significant lung damage detected. Immediate medical attention required."
+            recovery_time = "4+ weeks"
+
         # Heatmap
         heat = make_heatmap(img, fname)
 
@@ -173,10 +187,24 @@ def predict():
         # Save DB
         save(name, result, conf, path, report)
 
+        # 🔥 FINAL ADVANCED REPORT
+        final_report = f"""
+Lung health is {after}%
+Estimated reduction: {damage}%
+
+Severity: {severity}
+Explanation: {explanation}
+
+Recovery Time: {recovery_time}
+Advice: {treatment}
+
+Lifestyle: {lifestyle}
+"""
+
         return jsonify({
             "prediction": result,
             "confidence": conf,
-            "report": report,
+            "report": final_report,
             "treatment": treatment,
             "lifestyle": lifestyle,
             "heatmap": heat
