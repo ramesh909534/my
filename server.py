@@ -184,10 +184,22 @@ def predict():
             treatment = "Consult Pulmonologist immediately"
             lifestyle = "No smoking, strict medical care, rest"
 
-        # Save DB
-        save(name, result, conf, path, report)
-
         # 🔥 FINAL ADVANCED REPORT
+        final_report = f"""
+Lung health is {after}%
+Estimated reduction: {damage}%
+
+Severity: {severity}
+Explanation: {explanation}
+
+Recovery Time: {recovery_time}
+Advice: {treatment}
+
+Lifestyle: {lifestyle}
+"""
+
+        # Save DB (UPDATED ✅)
+        save(name, result, conf, path, final_report)
         final_report = f"""
 Lung health is {after}%
 Estimated reduction: {damage}%
@@ -339,7 +351,8 @@ def generate_pdf(pid):
     c.drawString(50, y, f"Confidence : {r[4]*100:.2f}%"); y -= 40
 
     # 🔥 FULL AI REPORT FROM DATABASE
-    report_lines = r[6].split("\n")
+    report_lines = r[6].split("
+")
 
     for line in report_lines:
         if line.strip() != "":
