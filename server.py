@@ -332,15 +332,19 @@ def generate_pdf(pid):
 
     y = h-120
 
+    # Basic Info
     c.drawString(50, y, f"Name : {r[1]}"); y -= 30
     c.drawString(50, y, f"Date : {r[2]}"); y -= 30
     c.drawString(50, y, f"Result : {r[3]}"); y -= 30
     c.drawString(50, y, f"Confidence : {r[4]*100:.2f}%"); y -= 40
 
-    c.drawString(50, y, "Treatment : Consult Doctor"); y -= 30
-    c.drawString(50, y, "Lifestyle : Healthy Diet"); y -= 40
+    # 🔥 FULL AI REPORT FROM DATABASE
+    report_lines = r[6].split("\n")
 
-    c.drawString(50, y, "Doctor Advice : Regular Checkup")
+    for line in report_lines:
+        if line.strip() != "":
+            c.drawString(50, y, line.strip())
+            y -= 25
 
     c.save()
 
