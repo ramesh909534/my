@@ -159,6 +159,17 @@ def predict():
         # Heatmap
         heat = make_heatmap(img, fname)
 
+        # 🔥 DYNAMIC ADVICE BASED ON CONDITION
+        if after > 75:
+            treatment = "Maintain healthy lifestyle"
+            lifestyle = "Exercise regularly, balanced diet"
+        elif after > 50:
+            treatment = "Consult doctor if symptoms persist"
+            lifestyle = "Avoid smoking, light exercise"
+        else:
+            treatment = "Consult Pulmonologist immediately"
+            lifestyle = "No smoking, strict medical care, rest"
+
         # Save DB
         save(name, result, conf, path, report)
 
@@ -166,8 +177,8 @@ def predict():
             "prediction": result,
             "confidence": conf,
             "report": report,
-            "treatment": "Consult Pulmonologist",
-            "lifestyle": "No Smoking, Exercise",
+            "treatment": treatment,
+            "lifestyle": lifestyle,
             "heatmap": heat
         })
 
