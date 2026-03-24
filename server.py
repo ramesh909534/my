@@ -33,7 +33,7 @@ os.makedirs(HEAT, exist_ok=True)
 
 # ================= AI MODEL LOAD =================
 try:
-    model = torch.load("lung_model.pth", map_location=torch.device("cpu"))
+    model = torch.load("lung_model.pth", map_location=torch.device("cpu"), weights_only=False)
     model.eval()
 except Exception as e:
     print("❌ Model load failed:", e)
@@ -318,3 +318,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
 
     app.run(host="0.0.0.0", port=port)
+
