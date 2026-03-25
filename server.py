@@ -246,41 +246,37 @@ def chat():
 
     try:
 
-        msg = request.json["msg"]
+        data_json = request.get_json(silent=True) or {}
+        msg = data_json.get("msg", "")
 
+        if not msg:
+            return jsonify({"reply": "❌ Empty message"})
+
+        if not OPENROUTER_KEY:
+            return jsonify({"reply": "❌ API key missing"})
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://my-r6pu.onrender.com",
+            "X-Title": "Lung AI App"
         }
 
-
-        # 🔥 STRONG MEDICAL PROMPT
         data = {
-            "model": "mistralai/mistral-7b-instruct",
+            "model": "meta-llama/llama-3-8b-instruct",
             "messages": [
-
                 {
                     "role": "system",
-                    "content": (
-                        "You are an experienced lung specialist doctor. "
-                        "Answer like ChatGPT. "
-                        "Give clear, direct, and specific medical answers. "
-                        "Do not give generic advice or long disclaimers. "
-                        "Focus only on the user's question."
-                    )
+                    "content": "You are an experienced lung specialist doctor. Give clear medical answers."
                 },
-
                 {
                     "role": "user",
                     "content": msg
                 }
-
             ],
             "max_tokens": 300,
             "temperature": 0.7
         }
-
 
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -289,22 +285,17 @@ def chat():
             timeout=30
         )
 
-
         res = r.json()
 
+        if "error" in res:
+            return jsonify({"reply": f"❌ {res['error']['message']}"})
 
         if "choices" not in res:
-
-            return jsonify({
-                "reply": "AI service error"
-            })
-
+            return jsonify({"reply": "❌ AI service error"})
 
         reply = res["choices"][0]["message"]["content"]
 
-
         return jsonify({"reply": reply})
-
 
     except Exception as e:
 
