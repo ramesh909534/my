@@ -240,28 +240,33 @@ def heat(name):
     return send_file(os.path.join(HEAT, name))
 
 
-# ================= CHAT (✅ FIXED) =================
+# ================= CHAT (FINAL FIXED) =================
 @app.route("/chat", methods=["POST"])
 def chat():
 
     try:
-        data_json = request.get_json()
+        data_json = request.get_json(silent=True) or {}
         msg = data_json.get("msg", "")
+
+        if not msg:
+            return jsonify({"reply": "❌ Empty message"})
 
         if not OPENROUTER_KEY:
             return jsonify({"reply": "❌ API key missing"})
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://my-r6pu.onrender.com",
+            "X-Title": "Lung AI App"
         }
 
         payload = {
-            "model": "openchat/openchat-3.5",  # ✅ WORKING MODEL
+            "model": "meta-llama/llama-3-8b-instruct",
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a professional lung specialist doctor."
+                    "content": "You are a professional lung specialist doctor. Give clear and simple medical advice."
                 },
                 {
                     "role": "user",
@@ -284,7 +289,6 @@ def chat():
 
         res = response.json()
 
-        # ✅ HANDLE ERROR
         if "error" in res:
             return jsonify({"reply": f"❌ {res['error']['message']}"})
 
@@ -297,7 +301,7 @@ def chat():
 
     except Exception as e:
         print("CHAT ERROR:", e)
-        return jsonify({"reply": str(e)})
+        return jsonify({"reply": "❌ Chat failed"})
 
 
 # ================= PDF =================
