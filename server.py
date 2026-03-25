@@ -240,7 +240,7 @@ def heat(name):
     return send_file(os.path.join(HEAT, name))
 
 
-# ================= CHAT =================
+# ================= CHAT (✅ FIXED) =================
 @app.route("/chat", methods=["POST"])
 def chat():
 
@@ -249,21 +249,19 @@ def chat():
         msg = data_json.get("msg", "")
 
         if not OPENROUTER_KEY:
-            return jsonify({"reply": "API key missing"})
+            return jsonify({"reply": "❌ API key missing"})
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://my-r6pu.onrender.com",
-            "X-Title": "Lung AI App"
+            "Content-Type": "application/json"
         }
 
         payload = {
-            "model": "mistralai/mistral-7b-instruct",
+            "model": "openchat/openchat-3.5",  # ✅ WORKING MODEL
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a professional lung specialist doctor. Give clear medical advice."
+                    "content": "You are a professional lung specialist doctor."
                 },
                 {
                     "role": "user",
@@ -281,13 +279,17 @@ def chat():
             timeout=30
         )
 
-        print("STATUS:", response.status_code)   # 🔥 DEBUG
-        print("RESP:", response.text)            # 🔥 DEBUG
-
-        if response.status_code != 200:
-            return jsonify({"reply": "AI service error"})
+        print("STATUS:", response.status_code)
+        print("RESP:", response.text)
 
         res = response.json()
+
+        # ✅ HANDLE ERROR
+        if "error" in res:
+            return jsonify({"reply": f"❌ {res['error']['message']}"})
+
+        if "choices" not in res:
+            return jsonify({"reply": "❌ No response from AI"})
 
         reply = res["choices"][0]["message"]["content"]
 
@@ -295,7 +297,7 @@ def chat():
 
     except Exception as e:
         print("CHAT ERROR:", e)
-        return jsonify({"reply": "Chat failed"})
+        return jsonify({"reply": str(e)})
 
 
 # ================= PDF =================
