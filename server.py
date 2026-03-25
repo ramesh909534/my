@@ -3,7 +3,6 @@ import cv2
 import os
 import sqlite3
 import traceback
-import requests
 
 from datetime import datetime
 
@@ -24,8 +23,6 @@ app = Flask(__name__)
 DB = "database.db"
 UPLOAD = "uploads"
 HEAT = "heatmaps"
-
-OPENROUTER_KEY = os.getenv("OPENROUTER_KEY")
 
 os.makedirs(UPLOAD, exist_ok=True)
 os.makedirs(HEAT, exist_ok=True)
@@ -238,70 +235,6 @@ def history():
 @app.route("/heatmap/<name>")
 def heat(name):
     return send_file(os.path.join(HEAT, name))
-
-
-# ================= CHAT (FINAL FIXED) =================
-@app.route("/chat", methods=["POST"])
-def chat():
-
-    try:
-
-        data_json = request.get_json(silent=True) or {}
-        msg = data_json.get("msg", "")
-
-        if not msg:
-            return jsonify({"reply": "❌ Empty message"})
-
-        if not OPENROUTER_KEY:
-            return jsonify({"reply": "❌ API key missing"})
-
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://my-r6pu.onrender.com",
-            "X-Title": "Lung AI App"
-        }
-
-        data = {
-            "model": "meta-llama/llama-3-8b-instruct",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an experienced lung specialist doctor. Give clear medical answers."
-                },
-                {
-                    "role": "user",
-                    "content": msg
-                }
-            ],
-            "max_tokens": 300,
-            "temperature": 0.7
-        }
-
-        r = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-
-        res = r.json()
-
-        if "error" in res:
-            return jsonify({"reply": f"❌ {res['error']['message']}"})
-
-        if "choices" not in res:
-            return jsonify({"reply": "❌ AI service error"})
-
-        reply = res["choices"][0]["message"]["content"]
-
-        return jsonify({"reply": reply})
-
-    except Exception as e:
-
-        return jsonify({
-            "reply": "AI unavailable. Please try again."
-        })
 
 
 # ================= PDF =================
