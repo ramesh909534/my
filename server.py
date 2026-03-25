@@ -245,12 +245,12 @@ def heat(name):
 def chat():
 
     try:
-        msg = request.json.get("msg", "")
+        data_json = request.get_json()
+        msg = data_json.get("msg", "")
 
         if not OPENROUTER_KEY:
             return jsonify({"reply": "API key missing"})
 
-        # ✅ FIXED INDENTATION
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json",
@@ -258,29 +258,36 @@ def chat():
             "X-Title": "Lung AI App"
         }
 
-        data = {
+        payload = {
             "model": "mistralai/mistral-7b-instruct",
             "messages": [
-                {"role": "system", "content": "You are a helpful lung specialist doctor."},
-                {"role": "user", "content": msg}
+                {
+                    "role": "system",
+                    "content": "You are a professional lung specialist doctor. Give clear medical advice."
+                },
+                {
+                    "role": "user",
+                    "content": msg
+                }
             ],
-            "max_tokens": 200
+            "max_tokens": 200,
+            "temperature": 0.7
         }
 
-        r = requests.post(
+        response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
-            json=data,
-            timeout=20
+            json=payload,
+            timeout=30
         )
 
-        if r.status_code != 200:
-            return jsonify({"reply": f"API error {r.status_code}"})
+        print("STATUS:", response.status_code)   # 🔥 DEBUG
+        print("RESP:", response.text)            # 🔥 DEBUG
 
-        res = r.json()
+        if response.status_code != 200:
+            return jsonify({"reply": "AI service error"})
 
-        if "choices" not in res:
-            return jsonify({"reply": "Invalid AI response"})
+        res = response.json()
 
         reply = res["choices"][0]["message"]["content"]
 
