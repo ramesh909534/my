@@ -250,11 +250,12 @@ def chat():
         if not OPENROUTER_KEY:
             return jsonify({"reply": "API key missing"})
 
+        # ✅ FIXED INDENTATION
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",   # ✅ FIX
-            "X-Title": "Lung AI App"              # ✅ FIX
+            "HTTP-Referer": "https://my-r6pu.onrender.com",
+            "X-Title": "Lung AI App"
         }
 
         data = {
