@@ -31,13 +31,26 @@ os.makedirs(UPLOAD, exist_ok=True)
 os.makedirs(HEAT, exist_ok=True)
 
 
-# ================= AI MODEL LOAD =================
+# ================= AI MODEL LOAD (🔥 FIXED) =================
 try:
-    model = torch.load("lung_model.pth", map_location=torch.device("cpu"), weights_only=False)
+    import torchvision.models.mobilenetv2 as mobilenetv2
+    import torch.serialization
+
+    torch.serialization.add_safe_globals([mobilenetv2.MobileNetV2])
+
+    model = torch.load(
+        "lung_model.pth",
+        map_location=torch.device("cpu"),
+        weights_only=False
+    )
+
     model.eval()
+    print("✅ Model loaded successfully")
+
 except Exception as e:
     print("❌ Model load failed:", e)
     model = None
+
 
 transform = transforms.Compose([
     transforms.Resize((224,224)),
@@ -240,7 +253,7 @@ def heat(name):
     return send_file(os.path.join(HEAT, name))
 
 
-# ================= CHAT (FINAL FIXED) =================
+# ================= CHAT =================
 @app.route("/chat", methods=["POST"])
 def chat():
 
@@ -249,14 +262,10 @@ def chat():
         msg = request.json.get("msg", "")
 
         if msg == "":
-            return jsonify({
-                "reply": "Please ask something"
-            })
+            return jsonify({"reply": "Please ask something"})
 
         if not OPENROUTER_KEY:
-            return jsonify({
-                "reply": "Server API key missing"
-            })
+            return jsonify({"reply": "Server API key missing"})
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -266,26 +275,9 @@ def chat():
         data = {
             "model": "mistralai/mistral-7b-instruct",
             "messages": [
-
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an experienced lung specialist doctor. "
-                        "Answer like ChatGPT. "
-                        "Give clear, direct, and specific medical answers. "
-                        "Do not give generic advice or long disclaimers. "
-                        "Focus only on the user's question."
-                    )
-                },
-
-                {
-                    "role": "user",
-                    "content": msg
-                }
-
-            ],
-            "max_tokens": 300,
-            "temperature": 0.7
+                {"role": "system", "content": "You are a lung specialist doctor."},
+                {"role": "user", "content": msg}
+            ]
         }
 
         r = requests.post(
@@ -297,64 +289,13 @@ def chat():
 
         res = r.json()
 
-        if "choices" not in res:
-            return jsonify({
-                "reply": "AI service error"
-            })
-
-        reply = res["choices"][0]["message"]["content"]
+        reply = res.get("choices", [{}])[0].get("message", {}).get("content", "No reply")
 
         return jsonify({"reply": reply})
 
     except Exception as e:
-
-        print("Chat Error:", e)
-
-        return jsonify({
-            "reply": "AI unavailable. Please try again."
-        })
-
-
-# ================= PDF =================
-@app.route("/generate_pdf/<int:pid>")
-def generate_pdf(pid):
-
-    con = sqlite3.connect(DB)
-    cur = con.cursor()
-
-    cur.execute("SELECT * FROM patients WHERE id=?", (pid,))
-    r = cur.fetchone()
-    con.close()
-
-    if r is None:
-        return jsonify({"error": "No record"})
-
-    file = f"report_{pid}.pdf"
-    c = canvas.Canvas(file, pagesize=A4)
-
-    w, h = A4
-
-    c.setFont("Helvetica-Bold", 22)
-    c.drawString(150, h-50, "AI Lung Health Report")
-
-    c.setFont("Helvetica", 14)
-    y = h-120
-
-    c.drawString(50, y, f"Name : {r[1]}"); y -= 30
-    c.drawString(50, y, f"Date : {r[2]}"); y -= 30
-    c.drawString(50, y, f"Result : {r[3]}"); y -= 30
-    c.drawString(50, y, f"Confidence : {r[4]*100:.2f}%"); y -= 40
-
-    report_lines = r[6].split("\n")
-
-    for line in report_lines:
-        if line.strip():
-            c.drawString(50, y, line.strip())
-            y -= 25
-
-    c.save()
-
-    return send_file(file, as_attachment=True, download_name=file)
+        print(e)
+        return jsonify({"reply": "AI error"})
 
 
 # ================= RUN =================
