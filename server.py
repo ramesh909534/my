@@ -10,13 +10,15 @@ from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
-# AI MODEL
+# ✅ NEW IMPORTS (AI MODEL)
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
+
 # ================= APP =================
 app = Flask(__name__)
+
 
 # ================= CONFIG =================
 DB = "database.db"
@@ -28,9 +30,10 @@ OPENROUTER_KEY = os.getenv("OPENROUTER_KEY")
 os.makedirs(UPLOAD, exist_ok=True)
 os.makedirs(HEAT, exist_ok=True)
 
-# ================= LOAD MODEL =================
+
+# ================= AI MODEL LOAD =================
 try:
-    model = torch.load("lung_model.pth", map_location=torch.device("cpu"))
+    model = torch.load("lung_model.pth", map_location=torch.device("cpu"), weights_only=False)
     model.eval()
 except Exception as e:
     print("❌ Model load failed:", e)
@@ -40,6 +43,7 @@ transform = transforms.Compose([
     transforms.Resize((224,224)),
     transforms.ToTensor(),
 ])
+
 
 # ================= DATABASE =================
 def init_db():
@@ -63,6 +67,7 @@ def init_db():
 
 init_db()
 
+
 # ================= SAVE =================
 def save(name, res, conf, img, rep):
     con = sqlite3.connect(DB)
@@ -82,6 +87,7 @@ def save(name, res, conf, img, rep):
     con.commit()
     con.close()
 
+
 # ================= HEATMAP =================
 def make_heatmap(img, fname):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -96,7 +102,8 @@ def make_heatmap(img, fname):
 
     return out
 
-# ================= AI ANALYSIS =================
+
+# ================= REAL AI FUNCTION =================
 def analyze_lung_health_real(path):
     if model is None:
         return 50
@@ -108,14 +115,18 @@ def analyze_lung_health_real(path):
         output = model(img)
 
     probs = torch.softmax(output, dim=1)
+
     normal_prob = probs[0][1].item()
 
     return int(normal_prob * 100)
 
+
 # ================= PREDICT =================
 @app.route("/predict", methods=["POST"])
 def predict():
+
     try:
+
         name = request.form.get("name", "Unknown")
 
         if "file" not in request.files:
@@ -133,41 +144,57 @@ def predict():
             return jsonify({"error": "Invalid Image"}), 400
 
         after = analyze_lung_health_real(path)
+
         before = int(min(100, after + 10 + (after * 0.1)))
         damage = before - after
 
+        result = "Lung Analysis"
         conf = after / 100
 
-        # severity logic
         if after > 75:
             severity = "Mild"
+            explanation = "Lungs appear mostly healthy with minor or no visible damage."
+            recovery_time = "1-2 weeks"
+        elif after > 50:
+            severity = "Moderate"
+            explanation = "Moderate lung changes detected. Monitoring is recommended."
+            recovery_time = "2-4 weeks"
+        else:
+            severity = "Severe"
+            explanation = "Significant lung damage detected. Immediate medical attention required."
+            recovery_time = "4+ weeks"
+
+        if after > 75:
             treatment = "Maintain healthy lifestyle"
             lifestyle = "Exercise regularly, balanced diet"
         elif after > 50:
-            severity = "Moderate"
             treatment = "Consult doctor if symptoms persist"
             lifestyle = "Avoid smoking, light exercise"
         else:
-            severity = "Severe"
             treatment = "Consult Pulmonologist immediately"
-            lifestyle = "Strict rest, no smoking"
+            lifestyle = "No smoking, strict medical care, rest"
 
-        report = f"""
+        final_report = f"""
 Lung health is {after}%
-Damage: {damage}%
+Estimated reduction: {damage}%
 
 Severity: {severity}
-Treatment: {treatment}
+Explanation: {explanation}
+
+Recovery Time: {recovery_time}
+Advice: {treatment}
+
 Lifestyle: {lifestyle}
 """
 
         heat = make_heatmap(img, fname)
 
-        save(name, "Lung Analysis", conf, path, report)
+        save(name, result, conf, path, final_report)
 
         return jsonify({
+            "prediction": result,
             "confidence": conf,
-            "report": report,
+            "report": final_report,
             "treatment": treatment,
             "lifestyle": lifestyle,
             "heatmap": heat
@@ -175,19 +202,24 @@ Lifestyle: {lifestyle}
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": "Failed"}), 500
+        return jsonify({"error": "Failed", "details": str(e)}), 500
+
 
 # ================= HISTORY =================
 @app.route("/history")
 def history():
+
     con = sqlite3.connect(DB)
     cur = con.cursor()
 
     cur.execute("SELECT * FROM patients")
+
     rows = cur.fetchall()
+
     con.close()
 
     data = []
+
     for r in rows:
         data.append({
             "id": r[0],
@@ -201,19 +233,30 @@ def history():
 
     return jsonify(data)
 
-# ================= HEATMAP =================
+
+# ================= HEATMAP FILE =================
 @app.route("/heatmap/<name>")
 def heat(name):
     return send_file(os.path.join(HEAT, name))
 
-# ================= CHATBOT =================
+
+# ================= CHAT (FINAL FIXED) =================
 @app.route("/chat", methods=["POST"])
 def chat():
+
     try:
+
         msg = request.json.get("msg", "")
 
+        if msg == "":
+            return jsonify({
+                "reply": "Please ask something"
+            })
+
         if not OPENROUTER_KEY:
-            return jsonify({"reply": "API key not set"})
+            return jsonify({
+                "reply": "Server API key missing"
+            })
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -223,40 +266,59 @@ def chat():
         data = {
             "model": "mistralai/mistral-7b-instruct",
             "messages": [
+
                 {
                     "role": "system",
                     "content": (
-                        "You are a lung specialist doctor. "
-                        "Give short, clear medical advice."
+                        "You are an experienced lung specialist doctor. "
+                        "Answer like ChatGPT. "
+                        "Give clear, direct, and specific medical answers. "
+                        "Do not give generic advice or long disclaimers. "
+                        "Focus only on the user's question."
                     )
                 },
+
                 {
                     "role": "user",
                     "content": msg
                 }
+
             ],
-            "max_tokens": 200
+            "max_tokens": 300,
+            "temperature": 0.7
         }
 
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=data,
-            timeout=20
+            timeout=30
         )
 
         res = r.json()
 
-        reply = res.get("choices", [{}])[0].get("message", {}).get("content", "No reply")
+        if "choices" not in res:
+            return jsonify({
+                "reply": "AI service error"
+            })
+
+        reply = res["choices"][0]["message"]["content"]
 
         return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({"reply": "Chatbot error"})
+
+        print("Chat Error:", e)
+
+        return jsonify({
+            "reply": "AI unavailable. Please try again."
+        })
+
 
 # ================= PDF =================
 @app.route("/generate_pdf/<int:pid>")
 def generate_pdf(pid):
+
     con = sqlite3.connect(DB)
     cur = con.cursor()
 
@@ -280,17 +342,22 @@ def generate_pdf(pid):
 
     c.drawString(50, y, f"Name : {r[1]}"); y -= 30
     c.drawString(50, y, f"Date : {r[2]}"); y -= 30
+    c.drawString(50, y, f"Result : {r[3]}"); y -= 30
     c.drawString(50, y, f"Confidence : {r[4]*100:.2f}%"); y -= 40
 
-    for line in r[6].split("\n"):
+    report_lines = r[6].split("\n")
+
+    for line in report_lines:
         if line.strip():
             c.drawString(50, y, line.strip())
             y -= 25
 
     c.save()
 
-    return send_file(file, as_attachment=True)
+    return send_file(file, as_attachment=True, download_name=file)
+
 
 # ================= RUN =================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
