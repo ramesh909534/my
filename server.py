@@ -253,7 +253,7 @@ def heat(name):
     return send_file(os.path.join(HEAT, name))
 
 
-# ================= CHAT (🔥 FIXED ERROR HANDLING) =================
+# ================= CHAT (🔥 FINAL FIXED) =================
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
@@ -271,7 +271,7 @@ def chat():
         }
 
         data = {
-            "model": "mistralai/mistral-7b-instruct:free", # Added :free to prevent out-of-credit errors!
+            "model": "openrouter/auto",  # ✅ FINAL FIX
             "messages": [
                 {"role": "system", "content": "You are a lung specialist doctor."},
                 {"role": "user", "content": msg}
@@ -287,16 +287,13 @@ def chat():
 
         res = r.json()
 
-        # 🔥 Catch OpenRouter API Level Errors
         if "error" in res:
             error_message = res["error"].get("message", "Unknown API Error")
             print("OpenRouter Error:", error_message)
             return jsonify({"reply": f"API Error: {error_message}"})
 
-        # Process Success
         reply = res.get("choices", [{}])[0].get("message", {}).get("content", "No reply")
-        
-        # Log unexpected responses that didn't have an explicit error object
+
         if reply == "No reply":
             print("Unexpected OpenRouter response:", res)
 
